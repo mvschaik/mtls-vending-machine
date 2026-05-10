@@ -224,6 +224,10 @@
                 const cert = forge.pki.certificateFromPem(signedCertPem);
                 const rootCert = forge.pki.certificateFromPem(rootCaPem);
 
+                // Ensure the certificate has the public key attached correctly
+                // Forge sometimes needs this explicitly if it's an RSA key
+                cert.publicKey = localKeyPair.publicKey;
+
                 // Create PKCS#12 ASN.1 structure
                 const p12Asn1 = forge.pkcs12.toPkcs12Asn1(
                     localKeyPair.privateKey, 

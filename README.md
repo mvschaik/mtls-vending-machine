@@ -9,6 +9,54 @@ A self-service web portal for generating mTLS client certificates securely. The 
 - **No Private Key Exposure**: The server never sees the user's private key.
 - **Identity Integration**: Trusts `X-Authentik-Username` (or configurable header) from a trusted proxy.
 
+## Architecture & Deployment
+
+The mTLS Vending Machine is designed to operate as a self-service component within a secure infrastructure.
+
+### The Stack
+
+1.  **Traefik**: Acts as the entry point, handling TLS termination and routing.
+2.  **Authentik**: Operates in **Proxy Mode** using **Forward Auth**. It authenticates the user and injects the `X-Authentik-Username` header into the request.
+3.  **Smallstep CA**: The backend certificate authority that signs the CSRs.
+
+### Workflow
+
+*   User navigates to `mtls.example.com`.
+*   Traefik delegates authentication to Authentik.
+*   Upon successful login, the request is forwarded to the Vending Machine with the user's identity in the headers.
+*   The user generates their keypair and CSR in the browser, which are then signed by the backend via Smallstep.
+
+### Docker Compose Example
+
+```yaml
+services:
+  vending-machine:
+    image: ghcr.io/mvschaik/mtls-vending-machine:main
+    container_name: mtls-vending-machine
+    restart: unless-stopped
+    environment:
+      - STEP_CA_URL=https://ca.internal
+      - STEP_PROVISIONER=vending-machine
+      - STEP_PROVISIONER_PASSWORD_FILE=/run/secrets/step_password
+      - ROOT_CA_PATH=/run/secrets/root_ca.crt
+      - TRUSTED_PROXIES=["172.16.0.0/12"] # Adjust to your Docker network
+    secrets:
+      - step_password
+      - root_ca.crt
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mtls.rule=Host(`mtls.example.com`)"
+      - "traefik.http.routers.mtls.entrypoints=websecure"
+      - "traefik.http.routers.mtls.tls=true"
+      - "traefik.http.routers.mtls.middlewares=authentik@docker"
+
+secrets:
+  step_password:
+    file: ./secrets/password.txt
+  root_ca.crt:
+    file: ./secrets/root_ca.crt
+```
+
 ## Local Development
 
 This project uses **uv** for Python dependency management.

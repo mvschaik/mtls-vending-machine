@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mTLS Vending Machine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.3.1/forge.min.js"></script>
+    <style>
+        .step-active { color: #3b82f6; font-weight: bold; }
+        .step-done { color: #10b981; }
+        .spinner {
+            border: 3px solid rgba(0, 0, 0, 0.1);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4 font-sans">
+    <div class="max-w-lg w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+        <!-- Header -->
+        <div class="bg-slate-900 p-6 text-white text-center">
+            <h1 class="text-2xl font-bold tracking-tight">mTLS Vending Machine</h1>
+            <p class="text-slate-400 mt-1">Secure self-service certificate provisioning</p>
+        </div>
+
+        <div class="p-8">
+            <!-- Stepper Navigation -->
+            <div class="flex items-center justify-between mb-8 px-2">
+                <div id="step-1-nav" class="flex flex-col items-center">
+                    <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mb-2 transition-colors duration-300">1</div>
+                    <span class="text-xs text-slate-500 uppercase font-semibold">Generate</span>
+                </div>
+                <div class="flex-1 h-px bg-slate-200 mx-4 -mt-6"></div>
+                <div id="step-2-nav" class="flex flex-col items-center">
+                    <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mb-2 transition-colors duration-300">2</div>
+                    <span class="text-xs text-slate-500 uppercase font-semibold">Sign</span>
+                </div>
+                <div class="flex-1 h-px bg-slate-200 mx-4 -mt-6"></div>
+                <div id="step-3-nav" class="flex flex-col items-center">
+                    <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mb-2 transition-colors duration-300">3</div>
+                    <span class="text-xs text-slate-500 uppercase font-semibold">Bundle</span>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div id="content-ready" class="space-y-6">
+                <div class="bg-blue-50 border-l-4 border-blue-400 p-4">
+                    <p class="text-sm text-blue-700">
+                        Welcome, <span class="font-bold">{{ username }}</span>. You are about to generate a private key and a signed certificate for mTLS authentication.
+                    </p>
+                </div>
+                <p class="text-slate-600 text-sm leading-relaxed text-center">
+                    Your private key is generated locally in your browser and will <strong>never</strong> leave your machine.
+                </p>
+                <button onclick="startVending()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md transform hover:-translate-y-0.5">
+                    Issue Certificate
+                </button>
+            </div>
+
+            <div id="content-processing" class="hidden space-y-6 py-4">
+                <div class="flex flex-col items-center justify-center">
+                    <div class="spinner mb-4"></div>
+                    <p id="processing-status" class="text-slate-700 font-medium">Initializing...</p>
+                    <p class="text-slate-400 text-xs mt-2">Do not close this window</p>
+                </div>
+            </div>
+
+            <div id="content-password" class="hidden space-y-6">
+                <div class="text-center">
+                    <h2 class="text-xl font-semibold text-slate-800">Secure Your Bundle</h2>
+                    <p class="text-slate-500 text-sm mt-2">Your certificate is signed! Enter a password to protect your PKCS#12 (.p12) bundle.</p>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Transport Password</label>
+                        <input type="password" id="p12-password" class="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition" placeholder="Enter password...">
+                    </div>
+                    <button onclick="finalizeBundle()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md">
+                        Download .p12 Bundle
+                    </button>
+                </div>
+            </div>
+
+            <div id="content-success" class="hidden space-y-6 text-center">
+                <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-800">Download Ready</h2>
+                <p class="text-slate-600">Your mTLS bundle has been generated successfully.</p>
+                <button onclick="location.reload()" class="text-blue-600 hover:text-blue-800 font-medium transition">Issue Another?</button>
+            </div>
+
+            <div id="content-error" class="hidden space-y-6 text-center">
+                <div class="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </div>
+                <h2 class="text-xl font-bold text-slate-800">Something went wrong</h2>
+                <p id="error-message" class="text-slate-600 text-sm">Failed to process request.</p>
+                <button onclick="location.reload()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-3 px-4 rounded-lg transition">Try Again</button>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="bg-slate-50 border-t border-slate-100 p-4 text-center">
+            <p class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">mTLS Vending Machine v1.0 &bull; Powered by Forge.js</p>
+        </div>
+    </div>
+
+    <script>
+        const username = "{{ username }}";
+        let localKeyPair = null;
+        let signedCertPem = null;
+        let rootCaPem = null;
+
+        function showContent(id) {
+            ['ready', 'processing', 'password', 'success', 'error'].forEach(s => {
+                document.getElementById('content-' + s).classList.add('hidden');
+            });
+            document.getElementById('content-' + id).classList.remove('hidden');
+        }
+
+        function updateStepper(step) {
+            for (let i = 1; i <= 3; i++) {
+                const nav = document.getElementById(`step-${i}-nav`);
+                const circle = nav.querySelector('div');
+                if (i < step) {
+                    circle.classList.remove('bg-slate-200', 'bg-blue-600', 'text-white');
+                    circle.classList.add('bg-green-500', 'text-white');
+                    circle.innerHTML = '✓';
+                } else if (i === step) {
+                    circle.classList.remove('bg-slate-200', 'bg-green-500', 'text-white');
+                    circle.classList.add('bg-blue-600', 'text-white');
+                    circle.innerHTML = i;
+                } else {
+                    circle.classList.remove('bg-blue-600', 'bg-green-500', 'text-white');
+                    circle.classList.add('bg-slate-200');
+                    circle.innerHTML = i;
+                }
+            }
+        }
+
+        async function startVending() {
+            try {
+                showContent('processing');
+                updateStepper(1);
+                
+                // 1. Key Generation
+                document.getElementById('processing-status').innerText = 'Generating 2048-bit RSA Keypair...';
+                // Using setTimeout to allow UI to update
+                await new Promise(r => setTimeout(r, 100));
+                
+                localKeyPair = await new Promise((resolve, reject) => {
+                    forge.pki.rsa.generateKeyPair({bits: 2048, workers: -1}, (err, keypair) => {
+                        if (err) reject(err);
+                        else resolve(keypair);
+                    });
+                });
+
+                // 2. CSR Creation
+                updateStepper(2);
+                document.getElementById('processing-status').innerText = 'Creating CSR...';
+                const csr = forge.pki.certificationRequestToPem(createCSR(localKeyPair, username));
+
+                // 3. Submitting to Signer
+                document.getElementById('processing-status').innerText = 'Signing with Backend...';
+                const response = await fetch('/sign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csr })
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || 'Signing failed');
+                }
+
+                const data = await response.json();
+                signedCertPem = data.cert;
+                rootCaPem = data.root_ca;
+
+                // 4. Prompt for Password
+                updateStepper(3);
+                showContent('password');
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('error-message').innerText = err.message;
+                showContent('error');
+            }
+        }
+
+        function createCSR(keypair, cn) {
+            const csr = forge.pki.createCertificationRequest();
+            csr.publicKey = keypair.publicKey;
+            csr.setSubject([{
+                name: 'commonName',
+                value: cn
+            }]);
+            // You can add more attributes here if needed (e.g., countryName, organizationName)
+            csr.sign(keypair.privateKey);
+            return csr;
+        }
+
+        function finalizeBundle() {
+            const password = document.getElementById('p12-password').value;
+            if (!password) {
+                alert('Please enter a transport password.');
+                return;
+            }
+
+            try {
+                document.getElementById('content-password').classList.add('hidden');
+                showContent('processing');
+                document.getElementById('processing-status').innerText = 'Creating PKCS#12 Bundle...';
+
+                // Convert PEMs to Forge objects
+                const cert = forge.pki.certificateFromPem(signedCertPem);
+                const rootCert = forge.pki.certificateFromPem(rootCaPem);
+
+                // Create PKCS#12 ASN.1 structure
+                const p12Asn1 = forge.pkcs12.toPkcs12Asn1(
+                    localKeyPair.privateKey, 
+                    [cert, rootCert], 
+                    password, 
+                    {algorithm: '3des'}
+                );
+
+                // Convert to DER and binary string
+                const p12Der = forge.asn1.toDer(p12Asn1).getBytes();
+                
+                // Trigger download
+                downloadBlob(p12Der, `${username}.p12`, 'application/x-pkcs12');
+                
+                showContent('success');
+            } catch (err) {
+                console.error(err);
+                document.getElementById('error-message').innerText = 'Failed to create P12 bundle: ' + err.message;
+                showContent('error');
+            }
+        }
+
+        function downloadBlob(data, filename, mimeType) {
+            const bytes = new Uint8Array(data.length);
+            for (let i = 0; i < data.length; i++) {
+                bytes[i] = data.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: mimeType });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>

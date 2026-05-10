@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     
     # Trusted proxy headers
     AUTHENTIK_USERNAME_HEADER: str = "X-Authentik-Username"
+    TRUSTED_PROXIES: list[str] = ["127.0.0.1"]  # Default to localhost
     
     # Mocking for tests
     MOCK_STEP_CLI: bool = False

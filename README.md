@@ -73,6 +73,7 @@ docker run -d \
 | `ROOT_CA_PATH` | Path to the Root CA certificate PEM file. | `/etc/step-ca/certs/root_ca.crt` |
 | `CERT_DURATION` | TTL for the issued certificates (e.g., `8760h`, `24h`). | `8760h` |
 | `AUTHENTIK_USERNAME_HEADER` | The header used to identify the user. | `X-Authentik-Username` |
+| `TRUSTED_PROXIES` | JSON list of trusted proxy IPs/CIDRs (e.g., `["10.0.0.0/8"]`). Use `["*"]` to trust all (unsafe). | `["127.0.0.1"]` |
 
 ## Smallstep CA Configuration
 

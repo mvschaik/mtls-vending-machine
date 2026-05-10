@@ -114,7 +114,7 @@
     </div>
 
     <script>
-        const username = "{{ username }}";
+        const username = {{ username | tojson }};
         let localKeyPair = null;
         let signedCertPem = null;
         let rootCaPem = null;
@@ -244,7 +244,10 @@
                     localKeyPair.privateKey, 
                     certs, 
                     password, 
-                    {algorithm: '3des'}
+                    {
+                        algorithm: 'aes256',
+                        generateLocalKeyId: true
+                    }
                 );
 
                 // Convert to DER and binary string

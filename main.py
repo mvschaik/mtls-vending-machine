@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import ipaddress
 from typing import Dict
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -18,25 +19,46 @@ templates = Jinja2Templates(directory="templates")
 class SignRequest(BaseModel):
     csr: str
 
+def verify_proxy(request: Request):
+    client_host = request.client.host
+    # If TRUSTED_PROXIES contains "*", we trust everyone (not recommended for prod)
+    if "*" in settings.TRUSTED_PROXIES:
+        return True
+    
+    for trusted in settings.TRUSTED_PROXIES:
+        try:
+            if ipaddress.ip_address(client_host) in ipaddress.ip_network(trusted):
+                return True
+        except ValueError:
+            continue
+    return False
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, x_authentik_username: str = Header(None, alias=settings.AUTHENTIK_USERNAME_HEADER)):
+    # Verify proxy if not in mock/dev mode
+    if not verify_proxy(request) and not settings.MOCK_STEP_CLI:
+        raise HTTPException(status_code=403, detail="Untrusted proxy source")
+
     if not x_authentik_username:
-        # In a real scenario, Authentik should always provide this.
-        # For development/testing, we might want a fallback or error.
         x_authentik_username = "Guest"
     
     return templates.TemplateResponse(request, "index.html", {"username": x_authentik_username})
 
 @app.post("/sign")
 async def sign_csr(
-    request: SignRequest,
+    request: Request,
+    sign_data: SignRequest,
     x_authentik_username: str = Header(None, alias=settings.AUTHENTIK_USERNAME_HEADER)
 ):
+    # Verify proxy
+    if not verify_proxy(request) and not settings.MOCK_STEP_CLI:
+        raise HTTPException(status_code=403, detail="Untrusted proxy source")
+
     if not x_authentik_username:
         raise HTTPException(status_code=401, detail="Missing authentication header")
 
     try:
-        csr = x509.load_pem_x509_csr(request.csr.encode())
+        csr = x509.load_pem_x509_csr(sign_data.csr.encode())
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid CSR: {str(e)}")
 
@@ -51,13 +73,24 @@ async def sign_csr(
             detail=f"CSR CN '{common_name[0].value}' does not match username '{x_authentik_username}'"
         )
 
+    # Validate SANs (Subject Alternative Names)
+    # We strictly forbid SANs or require them to match the username
+    try:
+        ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        for name in ext.value:
+            # If any SAN is present, it must match the username (as a DNS name or other)
+            # Simplest policy: Forbid SANs in this vending machine to prevent spoofing
+            raise HTTPException(status_code=403, detail="SANs are not allowed in CSR")
+    except x509.ExtensionNotFound:
+        pass # Good, no SANs
+
     if settings.MOCK_STEP_CLI:
         return {
             "cert": "-----BEGIN CERTIFICATE-----\nMOCKED_CERT\n-----END CERTIFICATE-----",
             "root_ca": "-----BEGIN CERTIFICATE-----\nMOCKED_ROOT_CA\n-----END CERTIFICATE-----"
         }
 
-    return await call_step_ca_sign(request.csr)
+    return await call_step_ca_sign(sign_data.csr)
 
 async def call_step_ca_sign(csr_pem: str) -> Dict[str, str]:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -80,27 +113,32 @@ async def call_step_ca_sign(csr_pem: str) -> Dict[str, str]:
         
         cmd.extend([csr_path, cert_path])
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"Step CA sign failed: {stderr.decode()}")
-        
-        with open(cert_path, "r") as f:
-            signed_cert = f.read()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
             
-        with open(settings.ROOT_CA_PATH, "r") as f:
-            root_ca = f.read()
+            # Add timeout to prevent hanging
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
             
-        return {
-            "cert": signed_cert,
-            "root_ca": root_ca
-        }
+            if process.returncode != 0:
+                raise HTTPException(status_code=500, detail=f"Step CA sign failed: {stderr.decode()}")
+            
+            with open(cert_path, "r") as f:
+                signed_cert = f.read()
+                
+            with open(settings.ROOT_CA_PATH, "r") as f:
+                root_ca = f.read()
+                
+            return {
+                "cert": signed_cert,
+                "root_ca": root_ca
+            }
+        except asyncio.TimeoutError:
+            process.kill()
+            raise HTTPException(status_code=504, detail="Step CA signing timed out")
 
 if __name__ == "__main__":
     import uvicorn

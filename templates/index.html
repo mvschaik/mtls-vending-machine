@@ -221,17 +221,28 @@
                 document.getElementById('processing-status').innerText = 'Creating PKCS#12 Bundle...';
 
                 // Convert PEMs to Forge objects
-                const cert = forge.pki.certificateFromPem(signedCertPem);
-                const rootCert = forge.pki.certificateFromPem(rootCaPem);
+                const certs = [];
+                try {
+                    const cert = forge.pki.certificateFromPem(signedCertPem);
+                    // Explicitly link the local public key to ensure Forge is happy
+                    cert.publicKey = localKeyPair.publicKey;
+                    certs.push(cert);
+                } catch (e) {
+                    throw new Error("Failed to parse signed certificate: " + e.message);
+                }
 
-                // Ensure the certificate has the public key attached correctly
-                // Forge sometimes needs this explicitly if it's an RSA key
-                cert.publicKey = localKeyPair.publicKey;
+                // Try to include the Root CA, but don't crash if Forge can't parse its public key (e.g. ECDSA)
+                try {
+                    const rootCert = forge.pki.certificateFromPem(rootCaPem);
+                    certs.push(rootCert);
+                } catch (e) {
+                    console.warn("Notice: Could not include Root CA in the .p12 bundle because its format (likely ECDSA) is not supported by the local bundler. The bundle will still contain your client identity.", e);
+                }
 
                 // Create PKCS#12 ASN.1 structure
                 const p12Asn1 = forge.pkcs12.toPkcs12Asn1(
                     localKeyPair.privateKey, 
-                    [cert, rootCert], 
+                    certs, 
                     password, 
                     {algorithm: '3des'}
                 );

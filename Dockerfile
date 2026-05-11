@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install step CLI
-ENV STEP_VERSION=0.28.0
+ENV STEP_VERSION=0.30.2
 RUN curl -LO https://github.com/smallstep/cli/releases/download/v${STEP_VERSION}/step_linux_${STEP_VERSION}_amd64.tar.gz \
     && tar -xf step_linux_${STEP_VERSION}_amd64.tar.gz \
     && cp step_${STEP_VERSION}/bin/step /usr/local/bin/ \

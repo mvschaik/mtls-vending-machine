@@ -1,13 +1,5 @@
 import { generateRSAKeyPair, createCSR, createP12Bundle, KeyPair } from './vending';
 
-declare global {
-  interface Window {
-    config: {
-      username: string;
-    };
-  }
-}
-
 let currentUsername = 'Guest';
 let localKeyPair: KeyPair | null = null;
 let signedCertPem: string | null = null;
@@ -137,20 +129,15 @@ function downloadBlob(data: string, filename: string, mimeType: string) {
 }
 
 async function init() {
-  currentUsername = window.config?.username || 'Guest';
-
-  // If the username is still the placeholder (happens when running Vite dev server without injection)
-  if (currentUsername.includes('{{')) {
-    try {
-      const resp = await fetch('/api/me');
-      if (resp.ok) {
-        const data = await resp.json();
-        currentUsername = data.username;
-      }
-    } catch (e) {
-      console.warn('Failed to fetch username, using Guest', e);
-      currentUsername = 'Guest';
+  try {
+    const resp = await fetch('/api/me');
+    if (resp.ok) {
+      const data = await resp.json();
+      currentUsername = data.username;
     }
+  } catch (e) {
+    console.warn('Failed to fetch username, using Guest', e);
+    currentUsername = 'Guest';
   }
 
   // Init UI

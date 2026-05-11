@@ -112,12 +112,6 @@
         </div>
     </div>
 
-    <script>
-        // Placeholder for FastAPI injection
-        window.config = {
-            username: {{ username | tojson | safe if username is defined else '"Guest"' }}
-        };
-    </script>
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

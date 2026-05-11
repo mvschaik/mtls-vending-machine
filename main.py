@@ -5,8 +5,7 @@ import ipaddress
 from typing import Dict
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from cryptography import x509
@@ -15,7 +14,6 @@ from cryptography.hazmat.primitives import serialization
 from config import settings
 
 app = FastAPI(title="mTLS Vending Machine")
-templates = Jinja2Templates(directory="templates")
 
 # Mount static files if the directory exists
 if os.path.exists("static"):
@@ -51,19 +49,16 @@ async def read_root(request: Request, x_authentik_username: str = Header(None, a
     if not verify_proxy(request) and not settings.MOCK_STEP_CLI:
         raise HTTPException(status_code=403, detail="Untrusted proxy source")
 
-    if not x_authentik_username:
-        x_authentik_username = "Guest"
-    
-    # Try to serve built frontend if it exists
     static_index = os.path.join("static", "index.html")
     if os.path.exists(static_index):
-        with open(static_index, "r") as f:
-            content = f.read()
-            # Still use Jinja2 to inject username if the placeholder is there
-            # Vite's index.html might have the placeholder if we kept it
-            return HTMLResponse(content=content.replace('{{ username | tojson | safe if username is defined else \'"Guest"\' }}', f'"{x_authentik_username}"'))
+        return FileResponse(static_index)
+    
+    # Fallback for development if static/ is not built yet
+    dev_index = os.path.join("frontend", "index.html")
+    if os.path.exists(dev_index):
+        return FileResponse(dev_index)
 
-    return templates.TemplateResponse(request, "index.html", {"username": x_authentik_username})
+    raise HTTPException(status_code=404, detail="Frontend not built. Run 'npm run build' in the frontend directory.")
 
 @app.post("/sign")
 async def sign_csr(
@@ -107,8 +102,8 @@ async def sign_csr(
 
     if settings.MOCK_STEP_CLI:
         return {
-            "cert": "-----BEGIN CERTIFICATE-----\nMOCKED_CERT\n-----END CERTIFICATE-----",
-            "root_ca": "-----BEGIN CERTIFICATE-----\nMOCKED_ROOT_CA\n-----END CERTIFICATE-----"
+            "cert": "-----BEGIN CERTIFICATE-----\nMIIC5jCCAo2gAwIBAgIQW6jt5asWS0JDgwJqf+VUdDAKBggqhkjOPQQDAjA0MRAw\nDgYDVQQKEwdTbWVoLUNBMSAwHgYDVQQDExdTbWVoLUNBIEludGVybWVkaWF0ZSBD\nQTAeFw0yNjA1MTExNDEyMTlaFw0yNjA1MTExNTEzMTlaMBAxDjAMBgNVBAMTBWVt\ncHR5MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA890okuokIeWFLcrv\n5hKVZBx7cFt/HmhJQRNVnzI4VwIQfac7nwbz6IKH9LjTrAFCL/Wz3qZHxrUeIMnM\n8LhPvEtMVoZw5uobbRe5cg6M+p9yiEnRGqECjN+w0hEn4dYV40qEkV3NiGLZ4jib\nLgc56kwH8LL+FpIKTcb75P1HOp4+hHQJ712qFQhzDqS74ORyyATLKEn8vtpWlybV\n4UZxjR3h6h2nfQJ6sVQ4de8fVEdC09bH71aanuCzD90FUtuGS7BePRQPvb3Mc1Ey\n0oofqloB+xPOYfkpFtoU6d9GILWkSkvp+G8r+x4QY6apwDM5XhXGg0iDncSCbfx9\nSK1B4wIDAQABo4HZMIHWMA4GA1UdDwEB/wQEAwIFoDAdBgNVHSUEFjAUBggrBgEF\nBQcDAQYIKwYBBQUHAwIwHQYDVR0OBBYEFL1kX0FVoiDBUQH/RaN1+vyV3ilGMB8G\nA1UdIwQYMBaAFP4QrYTa9kj41bPNzEgmHc1evzUgMBAGA1UdEQQJMAeCBWVtcHR5\nMFMGDCsGAQQBgqRkxihAAQRDMEECAQEED3ZlbmRpbmctbWFjaGluZQQrQW5BN0Fx\nd2haWUxKLXdyRnIwZUItb3J5aWN4YlE0Y1NNQ3FhOG5Vc0o1RTAKBggqhkjOPQQD\nAgNHADBEAiBWms2czETq5LITHbrDhamuhVPYgdVwXW6JnY8duDDBDQIgQ8wXbayb\nB02B/hCxUZ9FqPtrlF80/XmVlSPi1HnMGEs=\n-----END CERTIFICATE-----",
+            "root_ca": "-----BEGIN CERTIFICATE-----\nMIIBwzCCAWqgAwIBAgIQEukyXu5Sy7883+B2w5gBnzAKBggqhkjOPQQDAjAsMRAw\nDgYDVQQKEwdTbWVoLUNBMRgwFgYDVQQDEw9TbWVoLUNBIFJvb3QgQ0EwHhcNMjYw\nNTEwMDgwODU1WhcNMzYwNTA3MDgwODU1WjA0MRAwDgYDVQQKEwdTbWVoLUNBMSAw\nHgYDVQQDExdTbWVoLUNBIEludGVybWVkaWF0ZSBDQTBZMBMGByqGSM49AgEGCCqG\nSM49AwEHA0IABLz+5gcw8B87A5rrokqBKCJElZ34uPJKZcHQKMoRERpA7RTTbvfN\nf8oUvSmbZt+XPEzqqQvuFiOAp4e8B6G1RsajZjBkMA4GA1UdDwEB/wQEAwIBBjAS\nBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1UdDgQWBBT+EK2E2vZI+NWzzcxIJh3NXr81\nIDAfBgNVHSMEGDAWgBR0PNTRbxJ9hKeNjjKYIZxcWPjD/DAKBggqhkjOPQQDAgNH\nADBEAiBBUbCh+29QNsz+G/SKMkV22bD5MXEitcEqe2Dh4DTi+AIgZ6TMz6Lge3Xp\nUy0+h+OZx57W9giY4f6WuFrm841jU2w=\n-----END CERTIFICATE-----",
         }
 
     return await call_step_ca_sign(sign_data.csr)

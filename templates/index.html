@@ -208,6 +208,22 @@
             return csr;
         }
 
+        // Sanitize certificates for Go/Traefik compatibility
+        function stripCertParameters(cert) {
+            // 1. Clears the 'inner' signature parameters (inside TBSCertificate)
+            cert.signatureParameters = undefined;
+
+            // 2. Clears the 'outer' signature parameters (the wrapper)
+            if (cert.sigAlg) {
+                cert.sigAlg.parameters = undefined;
+            }
+
+            // 3. Some versions of Forge use 'md' for the digest algorithm block
+            if (cert.md && cert.md.parameters) {
+                cert.md.parameters = undefined;
+            }
+        }
+
         function finalizeBundle() {
             const password = document.getElementById('p12-password').value;
             if (!password) {
@@ -238,6 +254,8 @@
                 } catch (e) {
                     console.warn("Notice: Could not include Root CA in the .p12 bundle because its format (likely ECDSA) is not supported by the local bundler. The bundle will still contain your client identity.", e);
                 }
+
+                certs.forEach(stripCertParameters);
 
                 // Create PKCS#12 ASN.1 structure
                 const p12Asn1 = forge.pkcs12.toPkcs12Asn1(

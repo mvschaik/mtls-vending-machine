@@ -13,3 +13,8 @@ DESIGN.md
 MEMORY.md
 GEMINI.md
 .jj
+
+# Frontend build artifacts
+node_modules/
+frontend/node_modules/
+static/

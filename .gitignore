@@ -50,3 +50,9 @@ Thumbs.db
 # Project specific
 tmp/
 *.log
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+static/

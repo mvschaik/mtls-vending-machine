@@ -7,6 +7,7 @@ from typing import Dict
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
@@ -15,6 +16,10 @@ from config import settings
 
 app = FastAPI(title="mTLS Vending Machine")
 templates = Jinja2Templates(directory="templates")
+
+# Mount static files if the directory exists
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class SignRequest(BaseModel):
     csr: str
@@ -33,6 +38,13 @@ def verify_proxy(request: Request):
             continue
     return False
 
+@app.get("/api/me")
+async def get_me(request: Request, x_authentik_username: str = Header(None, alias=settings.AUTHENTIK_USERNAME_HEADER)):
+    if not verify_proxy(request) and not settings.MOCK_STEP_CLI:
+        raise HTTPException(status_code=403, detail="Untrusted proxy source")
+    
+    return {"username": x_authentik_username or "Guest"}
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, x_authentik_username: str = Header(None, alias=settings.AUTHENTIK_USERNAME_HEADER)):
     # Verify proxy if not in mock/dev mode
@@ -42,6 +54,15 @@ async def read_root(request: Request, x_authentik_username: str = Header(None, a
     if not x_authentik_username:
         x_authentik_username = "Guest"
     
+    # Try to serve built frontend if it exists
+    static_index = os.path.join("static", "index.html")
+    if os.path.exists(static_index):
+        with open(static_index, "r") as f:
+            content = f.read()
+            # Still use Jinja2 to inject username if the placeholder is there
+            # Vite's index.html might have the placeholder if we kept it
+            return HTMLResponse(content=content.replace('{{ username | tojson | safe if username is defined else \'"Guest"\' }}', f'"{x_authentik_username}"'))
+
     return templates.TemplateResponse(request, "index.html", {"username": x_authentik_username})
 
 @app.post("/sign")

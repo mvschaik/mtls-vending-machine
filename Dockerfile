@@ -1,3 +1,16 @@
+# --- Stage 1: Build the frontend ---
+FROM node:20-slim AS frontend-builder
+WORKDIR /build
+
+# Copy frontend configuration and install dependencies
+COPY frontend/package*.json ./
+RUN npm install
+
+# Copy frontend source and build
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: Final image ---
 FROM python:3.14-slim
 
 # Install system dependencies
@@ -34,6 +47,10 @@ RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY . .
+
+# Copy built frontend assets from the builder stage
+# Vite build puts files in ../static relative to frontend/ (so /static in our final image)
+COPY --from=frontend-builder /static ./static
 
 # Ensure appuser owns the app directory
 RUN chown -R appuser:appuser /app

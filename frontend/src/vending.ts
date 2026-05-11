@@ -25,21 +25,6 @@ export function createCSR(keypair: KeyPair, cn: string): string {
   return forge.pki.certificationRequestToPem(csr);
 }
 
-export function stripCertParameters(cert: forge.pki.Certificate): void {
-  // 1. Clears the 'inner' signature parameters (inside TBSCertificate)
-  (cert as any).signatureParameters = undefined;
-
-  // 2. Clears the 'outer' signature parameters (the wrapper)
-  if ((cert as any).sigAlg) {
-    (cert as any).sigAlg.parameters = undefined;
-  }
-
-  // 3. Some versions of Forge use 'md' for the digest algorithm block
-  if ((cert as any).md && (cert as any).md.parameters) {
-    (cert as any).md.parameters = undefined;
-  }
-}
-
 export function createP12Bundle(
   keypair: KeyPair,
   signedCertPem: string,
@@ -62,14 +47,12 @@ export function createP12Bundle(
     }
   }
 
-  certs.forEach(stripCertParameters);
-
   const p12Asn1 = forge.pkcs12.toPkcs12Asn1(
     keypair.privateKey,
     certs,
     password,
     {
-      algorithm: 'aes256',
+      algorithm: '3des',
       generateLocalKeyId: true
     }
   );

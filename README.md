@@ -59,37 +59,60 @@ secrets:
 
 ## Local Development
 
-This project uses **uv** for Python dependency management.
+This project uses **uv** for Python dependency management and **Node.js** for the TypeScript frontend.
 
 ### Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) installed on your machine.
+- [Node.js](https://nodejs.org/) (v20+) and **npm**.
 - [step CLI](https://smallstep.com/docs/step-cli/installation) (if you want to test signing locally without mocks).
 
 ### Setup
 
 1. Clone the repository and navigate to the project directory.
-2. Initialize the environment and install dependencies:
+2. Initialize the Python environment and install dependencies:
    ```bash
    uv sync
    ```
-3. Create a `.env` file with your configuration (optional, defaults are in `config.py`).
-4. Run the application:
+3. Initialize the frontend and install dependencies:
    ```bash
-   uv run uvicorn main:app --reload
+   cd frontend && npm install && cd ..
    ```
+4. Create a `.env` file with your configuration (optional, defaults are in `config.py`).
+
+### Running the Application
+
+For the best development experience, run the backend and frontend separately:
+
+**1. Start the Backend:**
+```bash
+uv run uvicorn main:app --reload
+```
+The backend runs on `http://localhost:8000`.
+
+**2. Start the Frontend (with HMR and Proxy):**
+```bash
+cd frontend && npm run dev
+```
+The frontend runs on `http://localhost:5173` and proxies API requests to the backend. You can now step through TypeScript code in the browser.
 
 ### Running Tests
 
+**Backend Tests:**
 ```bash
 uv run pytest
+```
+
+**Frontend Tests:**
+```bash
+cd frontend && npm test
 ```
 
 ## Docker Deployment
 
 ### Build
 
-To build the Docker image:
+The Docker build is **multi-stage**. It automatically builds the TypeScript frontend and packages it with the Python backend.
 
 ```bash
 docker build -t mtls-vending-machine .

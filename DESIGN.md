@@ -7,23 +7,24 @@ Build a self-service web portal that allows authenticated users to generate mTLS
 ## Architecture
 
 1. **Identity**: The app sits behind Traefik + Authentik (Forward Auth). It must trust `X-Authentik-Username` for the Certificate Common Name (CN).
-1. **Frontend** (The "Secure" Zone): Uses **Forge.js** (via CDN) to generate keys, create CSRs, and package the final PKCS#12 bundle. Using Forge.js consistently avoids interoperability issues with browser Web Crypto keys.
+1. **Frontend** (The "Secure" Zone): Uses **Web Crypto API** for key generation and **pkijs** for CSR creation and PKCS#12 bundling. This avoids node-forge encoding issues and leverages native performance.
 1. **Backend** (The "Signer"): A FastAPI app that interfaces with a `step-ca` instance to sign CSRs.
 
 ## 1. Frontend Requirements (HTML/JavaScript)
 
-* **Library**: Include `node-forge` via CDN.
+* **Libraries**: `pkijs`, `asn1js`, `pvtsutils`.
 * **Styling**: **Tailwind CSS** for a professional "Vending Machine" UI.
-* **Key Generation**: Use `forge.pki.rsa.generateKeyPair` (2048-bit) or ECDSA.
-* **CSR Creation**: 
+* **Key Generation**: Use browser-native `crypto.subtle.generateKey` (ECDSA P-256).
+* **CSR Creation**:
   * Extract the username from the `X-Authentik-Username` header (injected into the template).
-  * Create a CSR using the public key with `CN=[Username]`.
+  * Create a PKCS#10 CSR using `pkijs` with `CN=[Username]`.
 * **The "Sign" Request**: `POST` the PEM-encoded CSR to the backend.
 * **The Bundle**:
-  * Receive the signed Public Certificate and the Root CA certificate from the backend.
-  * Use `forge.js` to combine the **locally held private key**, the signed cert, and the root cert into a `.p12` file.
-  * Prompt the user for a "Transport Password" to encrypt the `.p12`.
-* **Download**: Trigger a browser download of `[username].p12`.
+  * Receive the signed Public Certificate from the backend.
+  * Use `pkijs` to combine the **locally held private key** and the signed cert into a password-protected `.p12` file.
+  * Encryption: Use AES-CBC and PBKDF2 (SHA-256) for the P12 bundle.
+  * Download: Trigger a browser download of `[username].p12`.
+
 * **UX**: A clean, single-card interface with a progress stepper:
     1. Initializing & Key Generation
     2. Submitting to Signer

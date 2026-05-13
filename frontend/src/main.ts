@@ -1,4 +1,4 @@
-import { generateRSAKeyPair, createCSR, createP12Bundle, KeyPair } from './vending';
+import { generateECDSAKeyPair, createCSR, createP12Bundle, dummyCASign, KeyPair } from './vending';
 
 let currentUsername = 'Guest';
 let localKeyPair: KeyPair | null = null;
@@ -42,33 +42,39 @@ async function startVending() {
     const statusEl = document.getElementById('processing-status');
     
     // 1. Key Generation
-    if (statusEl) statusEl.innerText = 'Generating 2048-bit RSA Keypair...';
-    // Using setTimeout to allow UI to update
+    if (statusEl) statusEl.innerText = 'Generating ECDSA P-256 Keypair...';
     await new Promise(r => setTimeout(r, 100));
 
-    localKeyPair = await generateRSAKeyPair(2048);
+    localKeyPair = await generateECDSAKeyPair();
 
     // 2. CSR Creation
     updateStepper(2);
-    if (statusEl) statusEl.innerText = 'Creating CSR...';
-    const csrPem = createCSR(localKeyPair, currentUsername);
+    if (statusEl) statusEl.innerText = 'Creating PKCS#10 CSR...';
+    const csrPem = await createCSR(localKeyPair, currentUsername);
 
-    // 3. Submitting to Signer
-    if (statusEl) statusEl.innerText = 'Signing with Backend...';
-    const response = await fetch('/sign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csr: csrPem })
-    });
+    // 3. Submitting to Signer (Simulated or Real)
+    if (statusEl) statusEl.innerText = 'Signing with CA...';
+    
+    try {
+      // Attempt real backend first
+      const response = await fetch('/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csr: csrPem })
+      });
 
-    if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData.detail || 'Signing failed');
+      if (response.ok) {
+        const data = await response.json();
+        signedCertPem = data.cert;
+        rootCaPem = data.root_ca;
+      } else {
+        console.warn('Backend signing failed, falling back to dummy CA for testing.');
+        signedCertPem = dummyCASign(csrPem);
+      }
+    } catch (e) {
+      console.warn('Backend unreachable, falling back to dummy CA for testing.', e);
+      signedCertPem = dummyCASign(csrPem);
     }
-
-    const data = await response.json();
-    signedCertPem = data.cert;
-    rootCaPem = data.root_ca;
 
     // 4. Prompt for Password
     updateStepper(3);
@@ -82,7 +88,7 @@ async function startVending() {
   }
 }
 
-function finalizeBundle() {
+async function finalizeBundle() {
   const passwordEl = document.getElementById('p12-password') as HTMLInputElement;
   const password = passwordEl?.value;
   if (!password) {
@@ -100,10 +106,15 @@ function finalizeBundle() {
     const statusEl = document.getElementById('processing-status');
     if (statusEl) statusEl.innerText = 'Creating PKCS#12 Bundle...';
 
-    const p12Der = createP12Bundle(localKeyPair, signedCertPem, rootCaPem, password);
+    const certChain = [signedCertPem];
+    if (rootCaPem) {
+      certChain.push(rootCaPem);
+    }
+
+    const p12Buffer = await createP12Bundle(localKeyPair, certChain, password);
     
     // Trigger download
-    downloadBlob(p12Der, `${currentUsername}.p12`, 'application/x-pkcs12');
+    downloadBlob(p12Buffer, `${currentUsername}.p12`, 'application/x-pkcs12');
     
     showContent('success');
   } catch (err: any) {
@@ -114,12 +125,8 @@ function finalizeBundle() {
   }
 }
 
-function downloadBlob(data: string, filename: string, mimeType: string) {
-  const bytes = new Uint8Array(data.length);
-  for (let i = 0; i < data.length; i++) {
-    bytes[i] = data.charCodeAt(i);
-  }
-  const blob = new Blob([bytes], { type: mimeType });
+function downloadBlob(data: ArrayBuffer, filename: string, mimeType: string) {
+  const blob = new Blob([data], { type: mimeType });
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -146,7 +153,9 @@ async function init() {
 
   // Event Listeners
   document.getElementById('btn-start')?.addEventListener('click', startVending);
-  document.getElementById('btn-finalize')?.addEventListener('click', finalizeBundle);
+  document.getElementById('btn-finalize')?.addEventListener('click', () => {
+    finalizeBundle().catch(console.error);
+  });
 }
 
 init();

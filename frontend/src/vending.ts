@@ -92,7 +92,14 @@ export async function createP12Bundle(
   const pkcs8Key = await globalThis.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
   const pkcs8 = new pkijs.PrivateKeyInfo({ schema: asn1js.fromBER(pkcs8Key).result });
 
-  // 2. Create ShroudedKeyBag (Encrypted Private Key)
+  // 2. Generate a localKeyId to link key and cert
+  const localKeyId = globalThis.crypto.getRandomValues(new Uint8Array(20));
+  const localKeyIdAttribute = new pkijs.Attribute({
+    type: "1.2.840.113549.1.9.21", // localKeyId
+    values: [new asn1js.OctetString({ valueHex: localKeyId.buffer })]
+  });
+
+  // 3. Create ShroudedKeyBag (Encrypted Private Key)
   const shroudedKeyBag = new pkijs.PKCS8ShroudedKeyBag({
     parsedValue: pkcs8
   });
@@ -109,12 +116,14 @@ export async function createP12Bundle(
 
   const keySafeBag = new pkijs.SafeBag({
     bagId: "1.2.840.113549.1.12.10.1.2", // pkcs8ShroudedKeyBag
-    bagValue: shroudedKeyBag
+    bagValue: shroudedKeyBag,
+    bagAttributes: [localKeyIdAttribute]
   });
 
-  // 3. Create CertBags
+  // 4. Create CertBags
   const certSafeBags: pkijs.SafeBag[] = [];
-  for (const certPem of certificateChainPems) {
+  for (let i = 0; i < certificateChainPems.length; i++) {
+    const certPem = certificateChainPems[i];
     const certBuffer = pemToArrayBuffer(certPem);
     const asn1 = asn1js.fromBER(certBuffer);
     if (asn1.offset === -1) {
@@ -122,17 +131,26 @@ export async function createP12Bundle(
     }
     const cert = new pkijs.Certificate({ schema: asn1.result });
     
-    const certBag = new pkijs.SafeBag({
-      bagId: "1.2.840.113549.1.12.10.1.3", // certBag
-      bagValue: new pkijs.CertBag({
-        certValue: cert
-      })
+    const certBag = new pkijs.CertBag({
+      certId: "1.2.840.113549.1.9.22.1", // x509Certificate (CRITICAL: default is empty!)
+      certValue: cert
     });
-    certSafeBags.push(certBag);
+
+    const bagAttributes = [];
+    if (i === 0) {
+      // Only the first cert (the entity cert) needs to be linked to the private key
+      bagAttributes.push(localKeyIdAttribute);
+    }
+
+    const certSafeBag = new pkijs.SafeBag({
+      bagId: "1.2.840.113549.1.12.10.1.3", // certBag
+      bagValue: certBag,
+      bagAttributes: bagAttributes
+    });
+    certSafeBags.push(certSafeBag);
   }
 
-  // 4. Construct AuthenticatedSafe
-  // We put everything in SafeContents, wrap in OctetString, and put in ContentInfo (Data)
+  // 5. Construct AuthenticatedSafe
   const keySafeContents = new pkijs.SafeContents({
     safeBags: [keySafeBag]
   });
@@ -154,7 +172,7 @@ export async function createP12Bundle(
     ]
   });
 
-  // 5. Create PFX and add MAC
+  // 6. Create PFX and add MAC
   const pfx = new pkijs.PFX({
     parsedValue: {
       integrityMode: 0, // Password-based integrity

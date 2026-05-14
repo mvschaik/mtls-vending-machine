@@ -84,7 +84,8 @@ QE63a9LgjkVKtQIgXyXPDjTgbutg2m8Gukon1qYnHec5H95xmo/cEmTtrfo=
 export async function createP12Bundle(
   keyPair: KeyPair,
   certificateChainPems: string[],
-  password: string
+  password: string,
+  friendlyName: string = "mTLS Certificate"
 ): Promise<ArrayBuffer> {
   const passwordBuffer = new TextEncoder().encode(password).buffer;
 
@@ -92,32 +93,23 @@ export async function createP12Bundle(
   const pkcs8Key = await globalThis.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
   const pkcs8 = new pkijs.PrivateKeyInfo({ schema: asn1js.fromBER(pkcs8Key).result });
 
-  // 2. Generate a localKeyId to link key and cert
+  // 2. Generate attributes to link key and cert
   const localKeyId = globalThis.crypto.getRandomValues(new Uint8Array(20));
   const localKeyIdAttribute = new pkijs.Attribute({
     type: "1.2.840.113549.1.9.21", // localKeyId
     values: [new asn1js.OctetString({ valueHex: localKeyId.buffer })]
   });
 
-  // 3. Create ShroudedKeyBag (Encrypted Private Key)
-  const shroudedKeyBag = new pkijs.PKCS8ShroudedKeyBag({
-    parsedValue: pkcs8
+  const friendlyNameAttribute = new pkijs.Attribute({
+    type: "1.2.840.113549.1.9.20", // friendlyName
+    values: [new asn1js.BmpString({ value: friendlyName })]
   });
 
-  await shroudedKeyBag.makeInternalValues({
-    password: passwordBuffer,
-    iterationCount: 10000,
-    hmacHashAlgorithm: "SHA-256",
-    contentEncryptionAlgorithm: {
-      name: "AES-CBC",
-      length: 256
-    } as any
-  });
-
+  // 3. Create Private Key Bag (Unencrypted for now, will be encrypted in AuthenticatedSafe)
   const keySafeBag = new pkijs.SafeBag({
-    bagId: "1.2.840.113549.1.12.10.1.2", // pkcs8ShroudedKeyBag
-    bagValue: shroudedKeyBag,
-    bagAttributes: [localKeyIdAttribute]
+    bagId: "1.2.840.113549.1.12.10.1.1", // keyBag (Unencrypted PKCS#8)
+    bagValue: pkcs8,
+    bagAttributes: [localKeyIdAttribute, friendlyNameAttribute]
   });
 
   // 4. Create CertBags
@@ -132,14 +124,14 @@ export async function createP12Bundle(
     const cert = new pkijs.Certificate({ schema: asn1.result });
     
     const certBag = new pkijs.CertBag({
-      certId: "1.2.840.113549.1.9.22.1", // x509Certificate (CRITICAL: default is empty!)
+      certId: "1.2.840.113549.1.9.22.1", // x509Certificate
       certValue: cert
     });
 
     const bagAttributes = [];
     if (i === 0) {
-      // Only the first cert (the entity cert) needs to be linked to the private key
       bagAttributes.push(localKeyIdAttribute);
+      bagAttributes.push(friendlyNameAttribute);
     }
 
     const certSafeBag = new pkijs.SafeBag({
@@ -150,32 +142,41 @@ export async function createP12Bundle(
     certSafeBags.push(certSafeBag);
   }
 
-  // 5. Construct AuthenticatedSafe
-  const keySafeContents = new pkijs.SafeContents({
-    safeBags: [keySafeBag]
-  });
-
-  const certSafeContents = new pkijs.SafeContents({
-    safeBags: certSafeBags
-  });
-
+  // 5. Construct AuthenticatedSafe using parsedValue pattern
   const authSafe = new pkijs.AuthenticatedSafe({
-    safeContents: [
-      new pkijs.ContentInfo({
-        contentType: "1.2.840.113549.1.7.1", // Data
-        content: new asn1js.OctetString({ valueHex: keySafeContents.toSchema().toBER(false) })
-      }),
-      new pkijs.ContentInfo({
-        contentType: "1.2.840.113549.1.7.1", // Data
-        content: new asn1js.OctetString({ valueHex: certSafeContents.toSchema().toBER(false) })
-      })
-    ]
+    parsedValue: {
+      safeContents: [
+        {
+          privacyMode: 1, // EncryptedData
+          value: new pkijs.SafeContents({ safeBags: [keySafeBag] })
+        },
+        {
+          privacyMode: 1, // EncryptedData
+          value: new pkijs.SafeContents({ safeBags: certSafeBags })
+        }
+      ]
+    }
+  });
+
+  // macOS and OpenSSL compatibility encryption settings
+  const encryptionParams = {
+    password: passwordBuffer,
+    iterationCount: 10000,
+    hmacHashAlgorithm: "SHA-256",
+    contentEncryptionAlgorithm: {
+      name: "AES-CBC",
+      length: 256
+    }
+  };
+
+  await authSafe.makeInternalValues({
+    safeContents: [encryptionParams, encryptionParams]
   });
 
   // 6. Create PFX and add MAC
   const pfx = new pkijs.PFX({
     parsedValue: {
-      integrityMode: 0, // Password-based integrity
+      integrityMode: 0, // Password-based HMAC
       authenticatedSafe: authSafe
     }
   });

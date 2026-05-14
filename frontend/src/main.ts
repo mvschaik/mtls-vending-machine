@@ -111,7 +111,7 @@ async function finalizeBundle() {
       certChain.push(rootCaPem);
     }
 
-    const p12Buffer = await createP12Bundle(localKeyPair, certChain, password);
+    const p12Buffer = await createP12Bundle(localKeyPair, certChain, password, currentUsername);
     
     // Trigger download
     downloadBlob(p12Buffer, `${currentUsername}.p12`, 'application/x-pkcs12');

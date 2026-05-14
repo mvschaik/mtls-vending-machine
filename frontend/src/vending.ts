@@ -80,7 +80,6 @@ QE63a9LgjkVKtQIgXyXPDjTgbutg2m8Gukon1qYnHec5H95xmo/cEmTtrfo=
 
 /**
  * Bundles the private key and the certificate chain into a password-protected .p12 file.
- * Uses AES-CBC for encryption.
  */
 export async function createP12Bundle(
   keyPair: KeyPair,
@@ -93,9 +92,28 @@ export async function createP12Bundle(
   const pkcs8Key = await globalThis.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
   const pkcs8 = new pkijs.PrivateKeyInfo({ schema: asn1js.fromBER(pkcs8Key).result });
 
-  // 2. Parse the certificate chain
-  const safeBags: pkijs.SafeBag[] = [];
+  // 2. Create ShroudedKeyBag (Encrypted Private Key)
+  const shroudedKeyBag = new pkijs.PKCS8ShroudedKeyBag({
+    parsedValue: pkcs8
+  });
 
+  await shroudedKeyBag.makeInternalValues({
+    password: passwordBuffer,
+    iterationCount: 10000,
+    hmacHashAlgorithm: "SHA-256",
+    contentEncryptionAlgorithm: {
+      name: "AES-CBC",
+      length: 256
+    } as any
+  });
+
+  const keySafeBag = new pkijs.SafeBag({
+    bagId: "1.2.840.113549.1.12.10.1.2", // pkcs8ShroudedKeyBag
+    bagValue: shroudedKeyBag
+  });
+
+  // 3. Create CertBags
+  const certSafeBags: pkijs.SafeBag[] = [];
   for (const certPem of certificateChainPems) {
     const certBuffer = pemToArrayBuffer(certPem);
     const asn1 = asn1js.fromBER(certBuffer);
@@ -110,41 +128,28 @@ export async function createP12Bundle(
         certValue: cert
       })
     });
-    safeBags.push(certBag);
+    certSafeBags.push(certBag);
   }
 
-  // 3. Create Private Key Bag (Encrypted / Shrouded)
-  const shroudedKeyBag = new pkijs.PKCS8ShroudedKeyBag({
-    parsedValue: pkcs8
+  // 4. Construct AuthenticatedSafe
+  // We put everything in SafeContents, wrap in OctetString, and put in ContentInfo (Data)
+  const keySafeContents = new pkijs.SafeContents({
+    safeBags: [keySafeBag]
   });
 
-  // Encrypt the private key bag using AES-CBC
-  await shroudedKeyBag.makeInternalValues({
-    password: passwordBuffer,
-    iterationCount: 10000,
-    hmacHashAlgorithm: "SHA-256",
-    contentEncryptionAlgorithm: {
-      name: "AES-CBC",
-      length: 256
-    } as any
-  });
-
-  const keyBag = new pkijs.SafeBag({
-    bagId: "1.2.840.113549.1.12.10.1.2", // pkcs8ShroudedKeyBag
-    bagValue: shroudedKeyBag
-  });
-  safeBags.push(keyBag);
-
-  // 4. Assemble SafeContents and AuthenticatedSafe
-  const safeContents = new pkijs.SafeContents({
-    safeBags: safeBags
+  const certSafeContents = new pkijs.SafeContents({
+    safeBags: certSafeBags
   });
 
   const authSafe = new pkijs.AuthenticatedSafe({
     safeContents: [
       new pkijs.ContentInfo({
         contentType: "1.2.840.113549.1.7.1", // Data
-        content: safeContents.toSchema()
+        content: new asn1js.OctetString({ valueHex: keySafeContents.toSchema().toBER(false) })
+      }),
+      new pkijs.ContentInfo({
+        contentType: "1.2.840.113549.1.7.1", // Data
+        content: new asn1js.OctetString({ valueHex: certSafeContents.toSchema().toBER(false) })
       })
     ]
   });
@@ -152,7 +157,7 @@ export async function createP12Bundle(
   // 5. Create PFX and add MAC
   const pfx = new pkijs.PFX({
     parsedValue: {
-      integrityMode: 0, // HMAC-based integrity
+      integrityMode: 0, // Password-based integrity
       authenticatedSafe: authSafe
     }
   });

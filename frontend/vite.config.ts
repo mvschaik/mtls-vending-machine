@@ -4,6 +4,7 @@ export default defineConfig({
   base: '/static/',
   test: {
     environment: 'node',
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
   },
   server: {
     proxy: {

@@ -125,7 +125,7 @@ export async function createP12Bundle(
     
     const certBag = new pkijs.CertBag({
       certId: "1.2.840.113549.1.9.22.1", // x509Certificate
-      certValue: cert
+      certValue: new asn1js.OctetString({ valueHex: cert.toSchema().toBER(false) })
     });
 
     const bagAttributes = [];

@@ -55,4 +55,6 @@ tmp/
 node_modules/
 frontend/dist/
 frontend/node_modules/
+frontend/playwright-report/
+frontend/test-results/
 static/

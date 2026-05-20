@@ -25,7 +25,7 @@ async def test_read_root():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/", headers={settings.AUTHENTIK_USERNAME_HEADER: "testuser"})
     assert response.status_code == 200
-    assert "testuser" in response.text
+    assert "mTLS Vending Machine" in response.text
 
 @pytest.mark.anyio
 async def test_sign_valid_csr():
@@ -44,7 +44,7 @@ async def test_sign_valid_csr():
     data = response.json()
     assert "cert" in data
     assert "root_ca" in data
-    assert "MOCKED_CERT" in data["cert"]
+    assert "-----BEGIN CERTIFICATE-----" in data["cert"]
 
 @pytest.mark.anyio
 async def test_sign_invalid_cn():

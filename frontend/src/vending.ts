@@ -1,6 +1,7 @@
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
 import { Convert } from "pvtsutils";
+import { OID } from "./oids";
 
 export interface KeyPair {
   publicKey: CryptoKey;
@@ -32,7 +33,7 @@ export async function createCSR(keyPair: KeyPair, cn: string): Promise<string> {
   // Set the Subject
   pkcs10.subject.typesAndValues.push(
     new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3", // Common Name
+      type: OID.commonName,
       value: new asn1js.Utf8String({ value: cn }),
     })
   );
@@ -96,18 +97,18 @@ export async function createP12Bundle(
   // 2. Generate attributes to link key and cert
   const localKeyId = globalThis.crypto.getRandomValues(new Uint8Array(20));
   const localKeyIdAttribute = new pkijs.Attribute({
-    type: "1.2.840.113549.1.9.21", // localKeyId
+    type: OID.localKeyId,
     values: [new asn1js.OctetString({ valueHex: localKeyId.buffer })]
   });
 
   const friendlyNameAttribute = new pkijs.Attribute({
-    type: "1.2.840.113549.1.9.20", // friendlyName
+    type: OID.friendlyName,
     values: [new asn1js.BmpString({ value: friendlyName })]
   });
 
   // 3. Create Private Key Bag (Unencrypted for now, will be encrypted in AuthenticatedSafe)
   const keySafeBag = new pkijs.SafeBag({
-    bagId: "1.2.840.113549.1.12.10.1.1", // keyBag (Unencrypted PKCS#8)
+    bagId: OID.keyBag,
     bagValue: pkcs8,
     bagAttributes: [localKeyIdAttribute, friendlyNameAttribute]
   });
@@ -124,7 +125,7 @@ export async function createP12Bundle(
     const cert = new pkijs.Certificate({ schema: asn1.result });
     
     const certBag = new pkijs.CertBag({
-      certId: "1.2.840.113549.1.9.22.1", // x509Certificate
+      certId: OID.x509Certificate,
       certValue: new asn1js.OctetString({ valueHex: cert.toSchema().toBER(false) })
     });
 
@@ -135,7 +136,7 @@ export async function createP12Bundle(
     }
 
     const certSafeBag = new pkijs.SafeBag({
-      bagId: "1.2.840.113549.1.12.10.1.3", // certBag
+      bagId: OID.certBag,
       bagValue: certBag,
       bagAttributes: bagAttributes
     });

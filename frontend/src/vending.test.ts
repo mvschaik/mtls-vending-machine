@@ -3,6 +3,7 @@ import { generateECDSAKeyPair, createCSR, createP12Bundle } from './vending';
 import * as pkijs from "pkijs";
 import * as asn1js from "asn1js";
 import { Convert } from "pvtsutils";
+import { OID } from './oids';
 
 describe('vending logic (pkijs/WebCrypto)', () => {
   it('should generate a valid ECDSA P-256 keypair', async () => {
@@ -25,7 +26,7 @@ describe('vending logic (pkijs/WebCrypto)', () => {
     const asn1 = asn1js.fromBER(der);
     const csr = new pkijs.CertificationRequest({ schema: asn1.result });
     
-    const cnField = csr.subject.typesAndValues.find(tv => tv.type === "2.5.4.3");
+    const cnField = csr.subject.typesAndValues.find(tv => tv.type === OID.commonName);
     expect(cnField).toBeDefined();
     expect(cnField?.value.valueBlock.value).toBe('test-user');
     
@@ -41,11 +42,11 @@ describe('vending logic (pkijs/WebCrypto)', () => {
     cert.version = 2;
     cert.serialNumber = new asn1js.Integer({ value: 1 });
     cert.subject.typesAndValues.push(new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
+      type: OID.commonName,
       value: new asn1js.Utf8String({ value: "test-user" })
     }));
     cert.issuer.typesAndValues.push(new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
+      type: OID.commonName,
       value: new asn1js.Utf8String({ value: "test-user" })
     }));
     cert.notBefore.value = new Date();
@@ -63,11 +64,11 @@ describe('vending logic (pkijs/WebCrypto)', () => {
     rootCert.version = 2;
     rootCert.serialNumber = new asn1js.Integer({ value: 2 });
     rootCert.subject.typesAndValues.push(new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
+      type: OID.commonName,
       value: new asn1js.Utf8String({ value: "Mock-Root-CA" })
     }));
     rootCert.issuer.typesAndValues.push(new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
+      type: OID.commonName,
       value: new asn1js.Utf8String({ value: "Mock-Root-CA" })
     }));
     rootCert.notBefore.value = new Date();

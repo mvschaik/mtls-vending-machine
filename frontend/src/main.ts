@@ -156,6 +156,12 @@ async function init() {
   document.getElementById('btn-finalize')?.addEventListener('click', () => {
     finalizeBundle().catch(console.error);
   });
+
+  document.getElementById('p12-password')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      finalizeBundle().catch(console.error);
+    }
+  });
 }
 
 init();

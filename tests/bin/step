@@ -1,0 +1,37 @@
+#!/bin/bash
+if [[ "$1" == "ca" && "$2" == "sign" ]]; then
+    shift 2
+    CSR_PATH=""
+    CERT_PATH=""
+    ROOT_CA=""
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --root)
+                ROOT_CA="$2"
+                shift 2
+                ;;
+            --provisioner|--not-after|--ca-url|--provisioner-password-file)
+                shift 2
+                ;;
+            *)
+                if [ -z "$CSR_PATH" ]; then
+                    CSR_PATH="$1"
+                else
+                    CERT_PATH="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Try to find mock CA keys relative to script or absolute
+    # Since we run from root, we can use relative paths
+    ROOT_CA_FILE="tests/mock-ca/root.crt"
+    ROOT_KEY_FILE="tests/mock-ca/root.key"
+
+    openssl x509 -req -in "$CSR_PATH" -CA "$ROOT_CA_FILE" -CAkey "$ROOT_KEY_FILE" -CAcreateserial -out "$CERT_PATH" -days 365 -sha256 -copy_extensions copyall
+else
+    echo "Mock step CLI: command not supported: $@"
+    exit 1
+fi
